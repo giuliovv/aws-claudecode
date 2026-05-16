@@ -109,6 +109,10 @@ function startAuthFlow() {
     };
     authProc.stdout.on('data', onData);
     authProc.stderr.on('data', onData);
+    authProc.on('error', (err) => {
+      authProc = null;
+      reject(new Error(`claude spawn failed: ${err.message}`));
+    });
     authProc.on('close', (code) => {
       authProc = null;
       if (code === 0) {
@@ -149,6 +153,7 @@ function runClaude(message) {
 
     proc.stdout.on('data', (d) => { stdout += d.toString(); });
     proc.stderr.on('data', (d) => { stderr += d.toString(); });
+    proc.on('error', (err) => reject(new Error(`claude spawn failed: ${err.message}`)));
     proc.on('close', (code) => {
       if (code !== 0) {
         sessionId = null;
