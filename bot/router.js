@@ -184,7 +184,17 @@ async function handleMessage(msg) {
     return;
   }
 
+  if (authStatus.error) {
+    await sendMessage(chatId, `❌ Container error: ${authStatus.error}\nTry /start to restart.`);
+    await putUser(chatId, { status: 'error' });
+    return;
+  }
+
   if (!authStatus.authenticated) {
+    if (!authStatus.authUrl) {
+      await sendMessage(chatId, '❌ Could not get auth URL. Try /start to restart.');
+      return;
+    }
     await sendMessage(chatId,
       `🔐 Authenticate with your Anthropic account:\n\n${authStatus.authUrl}\n\nOpen this link, sign in, then send me any message to continue.`
     );

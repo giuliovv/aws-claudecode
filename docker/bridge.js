@@ -17,6 +17,13 @@ const DYNAMO_TABLE = process.env.DYNAMO_TABLE || 'claudecode-users';
 const S3_BUCKET = process.env.S3_BUCKET || 'claudecode-sessions-854656252703';
 const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
 const CLAUDE_HOME = `/tmp/claude-home-${USER_CHAT_ID}`;
+const CLAUDE_BIN = '/usr/local/bin/claude';
+const SPAWN_ENV = (extra = {}) => ({
+  ...process.env,
+  PATH: `/usr/local/bin:${process.env.PATH || '/usr/bin:/bin'}`,
+  HOME: CLAUDE_HOME,
+  ...extra,
+});
 const CRED_FILE = path.join(CLAUDE_HOME, '.claude', 'credentials.json');
 const SESSION_FILE = path.join(CLAUDE_HOME, 'session.json');
 
@@ -95,8 +102,8 @@ function startAuthFlow() {
     if (authUrl) return resolve(authUrl);
     if (authProc) return reject(new Error('Auth already in progress'));
 
-    authProc = spawn('claude', ['auth', 'login'], {
-      env: { ...process.env, HOME: CLAUDE_HOME },
+    authProc = spawn(CLAUDE_BIN, ['auth', 'login'], {
+      env: SPAWN_ENV(),
     });
 
     const onData = (chunk) => {
@@ -146,8 +153,8 @@ function runClaude(message) {
 
     let stdout = '';
     let stderr = '';
-    const proc = spawn('claude', args, {
-      env: { ...process.env, HOME: CLAUDE_HOME },
+    const proc = spawn(CLAUDE_BIN, args, {
+      env: SPAWN_ENV(),
       timeout: 120000,
     });
 
