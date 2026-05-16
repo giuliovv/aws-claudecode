@@ -3,7 +3,8 @@ FROM node:20-alpine
 RUN apk add --no-cache git curl ca-certificates
 
 # Install Claude Code globally
-RUN npm install -g @anthropic-ai/claude-code --no-fund --no-audit
+RUN npm install -g @anthropic-ai/claude-code --no-fund --no-audit \
+    && rm -f /usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe
 
 WORKDIR /app
 COPY package.json ./
