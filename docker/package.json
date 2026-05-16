@@ -1,0 +1,13 @@
+{
+  "name": "claudecode-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "main": "bridge.js",
+  "scripts": {
+    "start": "node bridge.js"
+  },
+  "dependencies": {
+    "express": "^4.18.0",
+    "@aws-sdk/client-dynamodb": "^3.0.0"
+  }
+}

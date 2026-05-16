@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Claude Code on Telegram</title>
+  <style>
+    :root {
+      --bg: #0a0a0a;
+      --ink: #f0ebe0;
+      --ink-dim: #888;
+      --rec: #e52020;
+      --line: rgba(240,235,224,0.1);
+      --font: 'Courier New', Courier, monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--font);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .container { max-width: 560px; width: 100%; }
+    .tag {
+      font-size: 11px;
+      letter-spacing: 0.2em;
+      color: var(--rec);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+    .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--rec);
+      animation: blink 1.2s ease infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+    h1 {
+      font-size: clamp(36px, 10vw, 72px);
+      line-height: 1;
+      letter-spacing: -0.01em;
+      margin-bottom: 24px;
+    }
+    h1 span { color: var(--rec); }
+    .divider {
+      height: 1px;
+      background: var(--line);
+      margin: 24px 0;
+    }
+    .copy {
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--ink-dim);
+      letter-spacing: 0.05em;
+      margin-bottom: 32px;
+    }
+    .steps {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 40px;
+    }
+    .step {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+      padding: 12px;
+      border: 1px solid var(--line);
+    }
+    .step-num {
+      font-size: 11px;
+      color: var(--rec);
+      letter-spacing: 0.15em;
+      min-width: 28px;
+    }
+    .step-text {
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      line-height: 1.5;
+    }
+    .step-text strong { color: var(--ink); }
+    .cta {
+      display: block;
+      width: 100%;
+      padding: 18px;
+      background: var(--rec);
+      color: #fff;
+      font-family: var(--font);
+      font-size: 16px;
+      letter-spacing: 0.25em;
+      border: 2px solid var(--ink);
+      box-shadow: 0 0 0 2px var(--rec), 0 0 28px var(--rec);
+      cursor: pointer;
+      text-decoration: none;
+      text-align: center;
+      transition: opacity 0.15s;
+    }
+    .cta:hover { opacity: 0.85; }
+    .foot {
+      margin-top: 24px;
+      font-size: 10px;
+      color: var(--ink-dim);
+      letter-spacing: 0.15em;
+      text-align: center;
+    }
+    .foot a { color: var(--ink-dim); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="tag">
+      <span class="dot"></span>
+      LIVE · CLAUDE CODE
+    </div>
+
+    <h1>YOUR AI<br>ENGINEER<br>IN TELEGRAM<span>.</span></h1>
+
+    <div class="divider"></div>
+
+    <p class="copy">
+      Run Claude Code from your Telegram — your own instance,<br>
+      your own Anthropic account, persistent across sessions.
+    </p>
+
+    <div class="steps">
+      <div class="step">
+        <span class="step-num">01</span>
+        <span class="step-text"><strong>START THE BOT</strong> — open the Telegram link below</span>
+      </div>
+      <div class="step">
+        <span class="step-num">02</span>
+        <span class="step-text"><strong>WE SPIN UP YOUR CONTAINER</strong> — takes ~60 seconds, free on us</span>
+      </div>
+      <div class="step">
+        <span class="step-num">03</span>
+        <span class="step-text"><strong>SIGN IN WITH ANTHROPIC</strong> — click the auth link we send you</span>
+      </div>
+      <div class="step">
+        <span class="step-num">04</span>
+        <span class="step-text"><strong>START CODING</strong> — message the bot like you would Claude Code CLI</span>
+      </div>
+    </div>
+
+    <a id="tg-link" class="cta" href="#" target="_blank" rel="noreferrer noopener">
+      ▶ &nbsp; OPEN IN TELEGRAM
+    </a>
+
+    <p class="foot">
+      Powered by <a href="https://anthropic.com" target="_blank">Anthropic</a> Claude Code &amp; AWS Fargate.<br>
+      Your session and auth token are stored privately on encrypted EFS.<br>
+      <br>
+      BOT: <span id="bot-handle">loading...</span>
+    </p>
+  </div>
+
+  <script>
+    // BOT_HANDLE is injected at deploy time or via meta tag
+    const handle = document.querySelector('meta[name="telegram-bot"]')?.content
+      || window.TELEGRAM_BOT_HANDLE
+      || 'your_bot';
+    const link = document.getElementById('tg-link');
+    const handleSpan = document.getElementById('bot-handle');
+    link.href = `https://t.me/${handle}`;
+    handleSpan.textContent = `@${handle}`;
+  </script>
+</body>
+</html>

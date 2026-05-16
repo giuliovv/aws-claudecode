@@ -1,0 +1,28 @@
+{
+  "name": "aws-claudecode",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "cdk": "cdk",
+    "deploy": "cdk deploy --require-approval never",
+    "synth": "cdk synth",
+    "bot": "node bot/router.js"
+  },
+  "devDependencies": {
+    "@types/node": "~20",
+    "aws-cdk": "^2.254.0",
+    "typescript": "~5.4.0"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.0.0",
+    "@aws-sdk/client-ecr": "^3.0.0",
+    "@aws-sdk/client-ecs": "^3.0.0",
+    "@aws-sdk/client-efs": "^3.0.0",
+    "aws-cdk-lib": "^2.254.0",
+    "constructs": "^10.0.0",
+    "source-map-support": "^0.5.21",
+    "ts-node": "^10.9.2"
+  }
+}

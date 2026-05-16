@@ -1,0 +1,14 @@
+{
+  "name": "claudecode-router",
+  "version": "0.1.0",
+  "private": true,
+  "main": "router.js",
+  "scripts": {
+    "start": "node router.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.0.0",
+    "@aws-sdk/client-ecs": "^3.0.0",
+    "@aws-sdk/client-efs": "^3.0.0"
+  }
+}
