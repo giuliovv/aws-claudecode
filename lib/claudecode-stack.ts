@@ -3,7 +3,6 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
-import * as efs from 'aws-cdk-lib/aws-efs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
@@ -42,14 +41,12 @@ export class ClaudeCodeStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
-    // ── EFS ───────────────────────────────────────────────────────────────
-    const efsFs = new efs.FileSystem(this, 'UserDataEfs', {
-      vpc,
-      lifecyclePolicy: efs.LifecyclePolicy.AFTER_30_DAYS,
-      performanceMode: efs.PerformanceMode.GENERAL_PURPOSE,
-      throughputMode: efs.ThroughputMode.BURSTING,
+    // ── S3 bucket for user session credentials ────────────────────────────
+    const sessionsBucket = new s3.Bucket(this, 'SessionsBucket', {
+      bucketName: `claudecode-sessions-${this.account}`,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      versioned: true,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
-      enableAutomaticBackups: false,
     });
 
     // ── Security groups ───────────────────────────────────────────────────
@@ -65,7 +62,6 @@ export class ClaudeCodeStack extends cdk.Stack {
       ec2.Port.tcp(3000),
       'Bridge HTTP from VPC',
     );
-    efsFs.connections.allowDefaultPortFrom(taskSg, 'EFS from task SG');
 
     // ── IAM ───────────────────────────────────────────────────────────────
     // Task execution role (ECS infrastructure — ECR pull, CloudWatch logs)
@@ -77,10 +73,10 @@ export class ClaudeCodeStack extends cdk.Stack {
       assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
     });
     usersTable.grantWriteData(taskRole);
-    // Allow container to describe its own task (to get private IP)
+    sessionsBucket.grantReadWrite(taskRole);
     taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
-      actions: ['ecs:DescribeTasks'],
-      resources: ['*'],
+      actions: ['logs:CreateLogStream', 'logs:PutLogEvents'],
+      resources: [`arn:aws:logs:${this.region}:${this.account}:log-group:/claudecode/tasks:*`],
     }));
 
     // ── CloudWatch log group ──────────────────────────────────────────────
@@ -91,26 +87,21 @@ export class ClaudeCodeStack extends cdk.Stack {
     });
 
     // ── Base task definition ──────────────────────────────────────────────
-    // Per-user task defs are registered at provision time (different EFS access point).
-    // This base def is used for reference and by the provision script as a template.
+    // USER_CHAT_ID env override is applied at RunTask time per user.
     const taskDef = new ecs.FargateTaskDefinition(this, 'BaseTaskDef', {
       family: 'claudecode-user',
       cpu: 512,
       memoryLimitMiB: 1024,
       taskRole,
       executionRole,
-    });
-
-    taskDef.addVolume({
-      name: 'user-data',
-      efsVolumeConfiguration: {
-        fileSystemId: efsFs.fileSystemId,
-        transitEncryption: 'ENABLED',
-        authorizationConfig: { iam: 'ENABLED' },
+      // Use ARM64 (Graviton) — cheaper and matches this EC2's architecture
+      runtimePlatform: {
+        cpuArchitecture: ecs.CpuArchitecture.ARM64,
+        operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
       },
     });
 
-    const container = taskDef.addContainer('bridge', {
+    taskDef.addContainer('bridge', {
       image: ecs.ContainerImage.fromEcrRepository(repo, 'latest'),
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: 'bridge',
@@ -118,17 +109,10 @@ export class ClaudeCodeStack extends cdk.Stack {
       }),
       environment: {
         DYNAMO_TABLE: usersTable.tableName,
+        S3_BUCKET: sessionsBucket.bucketName,
         AWS_REGION: this.region,
-        DATA_DIR: '/data',
-        EFS_FS_ID: efsFs.fileSystemId,
       },
       portMappings: [{ containerPort: 3000, protocol: ecs.Protocol.TCP }],
-    });
-
-    container.addMountPoints({
-      sourceVolume: 'user-data',
-      containerPath: '/data',
-      readOnly: false,
     });
 
     // ── Web page: S3 + CloudFront ─────────────────────────────────────────
@@ -167,9 +151,9 @@ export class ClaudeCodeStack extends cdk.Stack {
       exportName: 'claudecode-users-table',
       value: usersTable.tableName,
     });
-    new cdk.CfnOutput(this, 'EfsId', {
-      exportName: 'claudecode-efs-id',
-      value: efsFs.fileSystemId,
+    new cdk.CfnOutput(this, 'SessionsBucket', {
+      exportName: 'claudecode-sessions-bucket',
+      value: sessionsBucket.bucketName,
     });
     new cdk.CfnOutput(this, 'TaskSgId', {
       exportName: 'claudecode-task-sg-id',
