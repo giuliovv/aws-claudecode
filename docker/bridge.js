@@ -217,12 +217,22 @@ app.get('/health', (_req, res) => {
 
 app.get('/auth-status', async (_req, res) => {
   if (isAuthenticated()) return res.json({ authenticated: true });
+  // If URL already captured, we're waiting for the user to paste the code
+  if (authUrl) return res.json({ authenticated: false, waitingForCode: true, authUrl });
   try {
     const url = await startAuthFlow();
-    res.json({ authenticated: false, authUrl: url });
+    res.json({ authenticated: false, waitingForCode: true, authUrl: url });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+app.post('/auth-code', (req, res) => {
+  const { code } = req.body || {};
+  if (!code) return res.status(400).json({ error: 'code required' });
+  if (!authProc) return res.status(400).json({ error: 'no auth in progress' });
+  authProc.stdin.write(code.trim() + '\n');
+  res.json({ ok: true });
 });
 
 app.post('/chat', async (req, res) => {

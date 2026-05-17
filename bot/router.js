@@ -195,8 +195,18 @@ async function handleMessage(msg) {
       await sendMessage(chatId, '❌ Could not get auth URL. Try /start to restart.');
       return;
     }
+    if (authStatus.waitingForCode && text && text !== '/start') {
+      // User is pasting the auth code back
+      try {
+        await bridgePost(user.privateIp, '/auth-code', { code: text });
+        await sendMessage(chatId, '✅ Code received! Completing authentication — send me any message in a few seconds to start chatting.');
+      } catch (e) {
+        await sendMessage(chatId, `❌ Failed to submit code: ${e.message}`);
+      }
+      return;
+    }
     await sendMessage(chatId,
-      `🔐 Authenticate with your Anthropic account:\n\n${authStatus.authUrl}\n\nOpen this link, sign in, then send me any message to continue.`
+      `🔐 Authenticate with your Anthropic account:\n\n${authStatus.authUrl}\n\nSign in, then paste the code you receive back here.`
     );
     return;
   }
