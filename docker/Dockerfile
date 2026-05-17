@@ -4,7 +4,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates awscli \
     && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /workspace
+RUN mkdir -p /workspace && chown node:node /workspace
 
 # Install Claude Code globally
 RUN npm install -g @anthropic-ai/claude-code --no-fund --no-audit
@@ -13,6 +13,9 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install --omit=dev --no-fund --no-audit
 COPY bridge.js ./
+RUN chown -R node:node /app
+
+USER node
 
 EXPOSE 3000
 
