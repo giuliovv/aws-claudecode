@@ -102,9 +102,9 @@ function bridgePost(ip, path, body) {
   });
 }
 
-function bridgeGet(ip, path) {
+function bridgeGet(ip, path, timeoutMs = 30000) {
   return new Promise((resolve, reject) => {
-    const options = { hostname: ip, port: 3000, path, method: 'GET', timeout: 10000 };
+    const options = { hostname: ip, port: 3000, path, method: 'GET', timeout: timeoutMs };
     const req = http.request(options, (res) => {
       let data = '';
       res.on('data', (c) => { data += c; });

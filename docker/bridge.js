@@ -60,6 +60,7 @@ app.use(express.json());
 
 let authProc = null;
 let authUrl = null;
+let authWaiters = [];
 let sessionId = null;
 
 // ── S3 helpers ────────────────────────────────────────────────────────────
@@ -123,26 +124,28 @@ function isAuthenticated() {
 function startAuthFlow() {
   return new Promise((resolve, reject) => {
     if (authUrl) return resolve(authUrl);
-    if (authProc) return reject(new Error('Auth already in progress'));
+
+    // Queue this caller — resolve/reject it when the URL arrives or the flow fails
+    authWaiters.push({ resolve, reject });
+    if (authProc) return; // already starting; just wait
 
     const [authBin, authArgs] = claudeCmd(['auth', 'login']);
-    authProc = spawn(authBin, authArgs, {
-      env: SPAWN_ENV(),
-    });
+    authProc = spawn(authBin, authArgs, { env: SPAWN_ENV() });
 
     const onData = (chunk) => {
       const text = chunk.toString();
-      const match = text.match(/https:\/\/claude\.ai\/[^\s]+/);
+      const match = text.match(/https:\/\/claude\.(?:ai|com)\/\S+/);
       if (match && !authUrl) {
         authUrl = match[0];
-        resolve(authUrl);
+        for (const w of authWaiters.splice(0)) w.resolve(authUrl);
       }
     };
     authProc.stdout.on('data', onData);
     authProc.stderr.on('data', onData);
     authProc.on('error', (err) => {
       authProc = null;
-      reject(new Error(`claude spawn failed: ${err.message}`));
+      const e = new Error(`claude spawn failed: ${err.message}`);
+      for (const w of authWaiters.splice(0)) w.reject(e);
     });
     authProc.on('close', (code) => {
       authProc = null;
@@ -157,9 +160,10 @@ function startAuthFlow() {
       if (!authUrl) {
         authProc?.kill();
         authProc = null;
-        reject(new Error('Auth URL not received within 20s'));
+        const e = new Error('Auth URL not received within 30s');
+        for (const w of authWaiters.splice(0)) w.reject(e);
       }
-    }, 20000);
+    }, 30000);
   });
 }
 
