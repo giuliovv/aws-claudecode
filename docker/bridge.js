@@ -16,6 +16,8 @@ const USER_CHAT_ID = process.env.USER_CHAT_ID || '';
 const DYNAMO_TABLE = process.env.DYNAMO_TABLE || 'claudecode-users';
 const S3_BUCKET = process.env.S3_BUCKET || 'claudecode-sessions-854656252703';
 const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
+const WORKSPACE = '/workspace';
+const USER_S3_PREFIX = `s3://${S3_BUCKET}/userfiles/${USER_CHAT_ID}`;
 const CLAUDE_HOME = `/tmp/claude-home-${USER_CHAT_ID}`;
 const SEARCH_PATH = `/usr/local/bin:/usr/bin:/bin`;
 const CLAUDE_BIN = (() => {
@@ -39,6 +41,8 @@ const SPAWN_ENV = (extra = {}) => ({
   ...process.env,
   PATH: `${SEARCH_PATH}:${process.env.PATH || ''}`,
   HOME: CLAUDE_HOME,
+  AWS_REGION,
+  USER_S3_PREFIX,
   ...extra,
 });
 // Returns [bin, args] — handles both native binary and raw .js entry point
@@ -192,6 +196,7 @@ function runClaude(message) {
     const [claudeBin, claudeArgs] = claudeCmd(args);
     const proc = spawn(claudeBin, claudeArgs, {
       env: SPAWN_ENV(),
+      cwd: WORKSPACE,
       timeout: 120000,
     });
 

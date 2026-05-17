@@ -1,8 +1,10 @@
 FROM node:20-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl ca-certificates \
+    git curl ca-certificates awscli \
     && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /workspace
 
 # Install Claude Code globally
 RUN npm install -g @anthropic-ai/claude-code --no-fund --no-audit
