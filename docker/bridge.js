@@ -51,7 +51,7 @@ function claudeCmd(args) {
     ? [process.execPath, [CLAUDE_BIN, ...args]]
     : [CLAUDE_BIN, args];
 }
-const CRED_FILE = path.join(CLAUDE_HOME, '.claude.json');
+const CRED_FILE = path.join(CLAUDE_HOME, '.claude', '.credentials.json');
 const SESSION_FILE = path.join(CLAUDE_HOME, 'session.json');
 
 fs.mkdirSync(CLAUDE_HOME, { recursive: true });
@@ -123,15 +123,7 @@ async function registerSelf() {
 // ── Auth helpers ──────────────────────────────────────────────────────────
 function isAuthenticated() {
   if (isAuthedInMemory) return true;
-  // Check if any auth-related files exist that claude would have written
-  try {
-    if (!fs.existsSync(CRED_FILE)) return false;
-    const d = JSON.parse(fs.readFileSync(CRED_FILE, 'utf8'));
-    // oauthAccount presence means the user has logged in (even if token is stored elsewhere)
-    return !!(d?.oauthAccount || d?.primaryApiKey || d?.oauth?.access_token || d?.claudeAiOauth?.accessToken);
-  } catch {
-    return false;
-  }
+  return fs.existsSync(CRED_FILE);
 }
 
 function startAuthFlow() {
@@ -235,14 +227,6 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', chatId: USER_CHAT_ID, authenticated: isAuthenticated() });
 });
 
-app.get('/debug-files', (_req, res) => {
-  try {
-    const out = execSync(`find ${CLAUDE_HOME} /root /tmp -maxdepth 5 -type f 2>/dev/null | grep -v node_modules | grep -v '.npm'`).toString().trim();
-    res.json({ files: out.split('\n').filter(Boolean) });
-  } catch (e) {
-    res.json({ files: [], error: e.message });
-  }
-});
 
 app.get('/auth-status', async (_req, res) => {
   if (isAuthenticated()) return res.json({ authenticated: true });
