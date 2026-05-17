@@ -197,6 +197,7 @@ function runClaude(message) {
     const proc = spawn(claudeBin, claudeArgs, {
       env: SPAWN_ENV(),
       cwd: WORKSPACE,
+      stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 120000,
     });
 
