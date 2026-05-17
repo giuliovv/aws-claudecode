@@ -5,8 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Claude Code globally
-RUN npm install -g @anthropic-ai/claude-code --no-fund --no-audit \
-    && rm -f /usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe
+RUN npm install -g @anthropic-ai/claude-code --no-fund --no-audit
 
 WORKDIR /app
 COPY package.json ./

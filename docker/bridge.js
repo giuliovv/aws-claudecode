@@ -17,13 +17,36 @@ const DYNAMO_TABLE = process.env.DYNAMO_TABLE || 'claudecode-users';
 const S3_BUCKET = process.env.S3_BUCKET || 'claudecode-sessions-854656252703';
 const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
 const CLAUDE_HOME = `/tmp/claude-home-${USER_CHAT_ID}`;
-const CLAUDE_BIN = '/usr/local/bin/claude';
+const SEARCH_PATH = `/usr/local/bin:/usr/bin:/bin`;
+const CLAUDE_BIN = (() => {
+  const candidates = ['/usr/local/bin/claude', '/usr/bin/claude'];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) { console.log('Found claude at', p); return p; }
+  }
+  try {
+    const found = execSync('which claude', { env: { PATH: SEARCH_PATH }, timeout: 5000 }).toString().trim();
+    if (found) { console.log('Found claude via which:', found); return found; }
+  } catch {}
+  try {
+    const found = execSync('find /usr/local/lib/node_modules/@anthropic-ai/claude-code -name "cli.js" -maxdepth 3 2>/dev/null | head -1', { timeout: 5000 }).toString().trim();
+    if (found) { console.log('Found claude cli.js at', found, '— will invoke via node'); return found; }
+  } catch {}
+  console.error('WARNING: claude binary not found, defaulting to /usr/local/bin/claude');
+  return '/usr/local/bin/claude';
+})();
+const CLAUDE_IS_SCRIPT = CLAUDE_BIN.endsWith('.js');
 const SPAWN_ENV = (extra = {}) => ({
   ...process.env,
-  PATH: `/usr/local/bin:${process.env.PATH || '/usr/bin:/bin'}`,
+  PATH: `${SEARCH_PATH}:${process.env.PATH || ''}`,
   HOME: CLAUDE_HOME,
   ...extra,
 });
+// Returns [bin, args] — handles both native binary and raw .js entry point
+function claudeCmd(args) {
+  return CLAUDE_IS_SCRIPT
+    ? [process.execPath, [CLAUDE_BIN, ...args]]
+    : [CLAUDE_BIN, args];
+}
 const CRED_FILE = path.join(CLAUDE_HOME, '.claude', 'credentials.json');
 const SESSION_FILE = path.join(CLAUDE_HOME, 'session.json');
 
@@ -102,7 +125,8 @@ function startAuthFlow() {
     if (authUrl) return resolve(authUrl);
     if (authProc) return reject(new Error('Auth already in progress'));
 
-    authProc = spawn(CLAUDE_BIN, ['auth', 'login'], {
+    const [authBin, authArgs] = claudeCmd(['auth', 'login']);
+    authProc = spawn(authBin, authArgs, {
       env: SPAWN_ENV(),
     });
 
@@ -153,7 +177,8 @@ function runClaude(message) {
 
     let stdout = '';
     let stderr = '';
-    const proc = spawn(CLAUDE_BIN, args, {
+    const [claudeBin, claudeArgs] = claudeCmd(args);
+    const proc = spawn(claudeBin, claudeArgs, {
       env: SPAWN_ENV(),
       timeout: 120000,
     });
