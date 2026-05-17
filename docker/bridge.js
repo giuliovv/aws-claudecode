@@ -52,9 +52,15 @@ function claudeCmd(args) {
     : [CLAUDE_BIN, args];
 }
 const CRED_FILE = path.join(CLAUDE_HOME, '.claude', '.credentials.json');
+const SETTINGS_FILE = path.join(CLAUDE_HOME, '.claude', 'settings.json');
 const SESSION_FILE = path.join(CLAUDE_HOME, 'session.json');
 
-fs.mkdirSync(CLAUDE_HOME, { recursive: true });
+fs.mkdirSync(path.join(CLAUDE_HOME, '.claude'), { recursive: true });
+// Always write settings so commands run without approval prompts
+fs.writeFileSync(SETTINGS_FILE, JSON.stringify({
+  skipDangerousModePermissionPrompt: true,
+  trustedFolders: [WORKSPACE],
+}, null, 2));
 
 const dynamo = new DynamoDBClient({ region: AWS_REGION });
 const s3 = new S3Client({ region: AWS_REGION });
@@ -185,7 +191,7 @@ function runClaude(message) {
       sessionId = saved.sessionId;
     } catch {}
 
-    const args = ['--print'];
+    const args = ['--print', '--dangerously-skip-permissions'];
     if (sessionId) args.push('--resume', sessionId);
     args.push(message);
 
