@@ -47,10 +47,10 @@ function claudeCmd(args) {
     ? [process.execPath, [CLAUDE_BIN, ...args]]
     : [CLAUDE_BIN, args];
 }
-const CRED_FILE = path.join(CLAUDE_HOME, '.claude', 'credentials.json');
+const CRED_FILE = path.join(CLAUDE_HOME, '.claude.json');
 const SESSION_FILE = path.join(CLAUDE_HOME, 'session.json');
 
-fs.mkdirSync(path.join(CLAUDE_HOME, '.claude'), { recursive: true });
+fs.mkdirSync(CLAUDE_HOME, { recursive: true });
 
 const dynamo = new DynamoDBClient({ region: AWS_REGION });
 const s3 = new S3Client({ region: AWS_REGION });
@@ -61,16 +61,17 @@ app.use(express.json());
 let authProc = null;
 let authUrl = null;
 let authWaiters = [];
+let codeSubmitted = false;
+let isAuthedInMemory = false;
 let sessionId = null;
 
 // ── S3 helpers ────────────────────────────────────────────────────────────
-const s3CredKey = `sessions/${USER_CHAT_ID}/credentials.json`;
+const s3CredKey = `sessions/${USER_CHAT_ID}/claude.json`;
 
 async function loadCredsFromS3() {
   try {
     const res = await s3.send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: s3CredKey }));
     const body = await res.Body.transformToString();
-    fs.mkdirSync(path.dirname(CRED_FILE), { recursive: true });
     fs.writeFileSync(CRED_FILE, body);
     console.log('Loaded credentials from S3');
   } catch (e) {
@@ -112,10 +113,12 @@ async function registerSelf() {
 
 // ── Auth helpers ──────────────────────────────────────────────────────────
 function isAuthenticated() {
+  if (isAuthedInMemory) return true;
   try {
     if (!fs.existsSync(CRED_FILE)) return false;
-    const creds = JSON.parse(fs.readFileSync(CRED_FILE, 'utf8'));
-    return !!(creds?.oauth?.access_token || creds?.claudeAiOauth?.accessToken);
+    const d = JSON.parse(fs.readFileSync(CRED_FILE, 'utf8'));
+    // Claude Code 2.x: ~/.claude.json with oauthAccount; older: credentials.json with oauth/claudeAiOauth
+    return !!(d?.oauthAccount || d?.primaryApiKey || d?.oauth?.access_token || d?.claudeAiOauth?.accessToken);
   } catch {
     return false;
   }
@@ -149,10 +152,15 @@ function startAuthFlow() {
     });
     authProc.on('close', (code) => {
       authProc = null;
+      codeSubmitted = false;
       if (code === 0) {
         authUrl = null;
-        saveCredsToS3();
-        console.log('Auth completed, saved to S3');
+        isAuthedInMemory = true;
+        saveCredsToS3().then(() => console.log('Auth completed, saved to S3'))
+          .catch((e) => console.error('Save to S3 failed:', e.message));
+      } else {
+        console.error('Auth process exited with code', code, '— user may need to retry');
+        authUrl = null;
       }
     });
 
@@ -217,7 +225,7 @@ app.get('/health', (_req, res) => {
 
 app.get('/auth-status', async (_req, res) => {
   if (isAuthenticated()) return res.json({ authenticated: true });
-  // If URL already captured, we're waiting for the user to paste the code
+  if (codeSubmitted) return res.json({ authenticated: false, pendingCompletion: true });
   if (authUrl) return res.json({ authenticated: false, waitingForCode: true, authUrl });
   try {
     const url = await startAuthFlow();
@@ -232,6 +240,8 @@ app.post('/auth-code', (req, res) => {
   if (!code) return res.status(400).json({ error: 'code required' });
   if (!authProc) return res.status(400).json({ error: 'no auth in progress' });
   authProc.stdin.write(code.trim() + '\n');
+  codeSubmitted = true;
+  authUrl = null;
   res.json({ ok: true });
 });
 

@@ -195,11 +195,15 @@ async function handleMessage(msg) {
       await sendMessage(chatId, '❌ Could not get auth URL. Try /start to restart.');
       return;
     }
+    if (authStatus.pendingCompletion) {
+      await sendMessage(chatId, '⏳ Authentication completing, please wait a moment then send another message.');
+      return;
+    }
     if (authStatus.waitingForCode && text && text !== '/start') {
       // User is pasting the auth code back
       try {
         await bridgePost(user.privateIp, '/auth-code', { code: text });
-        await sendMessage(chatId, '✅ Code received! Completing authentication — send me any message in a few seconds to start chatting.');
+        await sendMessage(chatId, '✅ Code submitted! Send me a message in a few seconds to start chatting.');
       } catch (e) {
         await sendMessage(chatId, `❌ Failed to submit code: ${e.message}`);
       }
