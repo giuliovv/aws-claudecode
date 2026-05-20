@@ -56,11 +56,38 @@ const SETTINGS_FILE = path.join(CLAUDE_HOME, '.claude', 'settings.json');
 const SESSION_FILE = path.join(CLAUDE_HOME, 'session.json');
 
 fs.mkdirSync(path.join(CLAUDE_HOME, '.claude'), { recursive: true });
+fs.mkdirSync(WORKSPACE, { recursive: true });
 // Always write settings so commands run without approval prompts
 fs.writeFileSync(SETTINGS_FILE, JSON.stringify({
   skipDangerousModePermissionPrompt: true,
   trustedFolders: [WORKSPACE],
 }, null, 2));
+
+// Write CLAUDE.md so every session knows its environment
+fs.writeFileSync(path.join(WORKSPACE, 'CLAUDE.md'), `# Environment
+
+You are running inside an AWS ECS Fargate container (ARM64) as a personal assistant for a single user.
+
+## Identity
+- User Telegram chat ID: ${USER_CHAT_ID}
+- Workspace: ${WORKSPACE} (your working directory for all files)
+- Your home dir: ${CLAUDE_HOME}
+
+## AWS Access
+- AWS Region: ${AWS_REGION}
+- You have an IAM task role with permissions to:
+  - Read/write S3 bucket \`${S3_BUCKET}\` under prefix \`userfiles/${USER_CHAT_ID}/\`
+  - Read/write DynamoDB table \`${DYNAMO_TABLE}\` (your own row)
+  - Write CloudWatch logs
+- AWS CLI is installed and pre-authenticated via the task role — no credentials needed
+- Example: \`aws s3 ls s3://${S3_BUCKET}/userfiles/${USER_CHAT_ID}/\`
+
+## Behaviour
+- All file work should happen under ${WORKSPACE}
+- You may use the AWS CLI freely for S3, DynamoDB, and other AWS operations
+- Internet access is available for fetching packages, docs, and APIs
+- You are the sole occupant of this container — no other users share it
+`);
 
 const dynamo = new DynamoDBClient({ region: AWS_REGION });
 const s3 = new S3Client({ region: AWS_REGION });
