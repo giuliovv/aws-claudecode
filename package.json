@@ -12,7 +12,7 @@
   },
   "devDependencies": {
     "@types/node": "~20",
-    "aws-cdk": "^2.254.0",
+    "aws-cdk": "^2.1124.0",
     "typescript": "~5.4.0"
   },
   "dependencies": {
@@ -20,7 +20,7 @@
     "@aws-sdk/client-ecr": "^3.0.0",
     "@aws-sdk/client-ecs": "^3.0.0",
     "@aws-sdk/client-efs": "^3.0.0",
-    "aws-cdk-lib": "^2.254.0",
+    "aws-cdk-lib": "^2.256.0",
     "constructs": "^10.0.0",
     "source-map-support": "^0.5.21",
     "ts-node": "^10.9.2"
