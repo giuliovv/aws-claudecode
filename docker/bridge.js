@@ -218,7 +218,7 @@ function runClaude(message) {
       sessionId = saved.sessionId;
     } catch {}
 
-    const args = ['--print'];
+    const args = ['--print', '--dangerously-skip-permissions'];
     if (sessionId) args.push('--resume', sessionId);
     args.push(message);
 
