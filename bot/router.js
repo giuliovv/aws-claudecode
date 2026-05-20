@@ -57,6 +57,19 @@ async function sendMessage(chatId, text) {
   }
 }
 
+async function sendMessageWithId(chatId, text) {
+  const res = await tgRequest('sendMessage', { chat_id: chatId, text });
+  return res?.result?.message_id;
+}
+
+async function editMessage(chatId, messageId, text) {
+  return tgRequest('editMessageText', { chat_id: chatId, message_id: messageId, text });
+}
+
+async function deleteMessage(chatId, messageId) {
+  return tgRequest('deleteMessage', { chat_id: chatId, message_id: messageId });
+}
+
 // ── DynamoDB helpers ──────────────────────────────────────────────────────
 async function getUser(chatId) {
   const { Item } = await dynamo.send(new GetItemCommand({
@@ -369,19 +382,45 @@ async function handleMessage(msg) {
     }
   }
 
+  // Show working indicator while Claude processes
+  tgRequest('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => {});
+  const workingMsgId = await sendMessageWithId(chatId, '⏳ Working...').catch(() => null);
+  const typingInterval = setInterval(() => {
+    tgRequest('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => {});
+  }, 4000);
+
   try {
     const result = await bridgePost(user.privateIp, '/chat', { message: text });
+    clearInterval(typingInterval);
+
     if (result.needsAuth) {
+      if (workingMsgId) await deleteMessage(chatId, workingMsgId).catch(() => {});
       await sendMessage(chatId, `🔐 Session expired. Re-authenticate:\n\n${result.authUrl}`);
       return;
     }
     if (result.error) {
-      await sendMessage(chatId, `⚠️ ${result.error}`);
+      const errText = `⚠️ ${result.error}`;
+      if (workingMsgId) await editMessage(chatId, workingMsgId, errText).catch(() => sendMessage(chatId, errText));
+      else await sendMessage(chatId, errText);
       return;
     }
-    await sendMessage(chatId, result.response || '(no response)');
+
+    const response = result.response || '(no response)';
+    if (workingMsgId) {
+      if (response.length <= 4000) {
+        await editMessage(chatId, workingMsgId, response).catch(() => sendMessage(chatId, response));
+      } else {
+        await deleteMessage(chatId, workingMsgId).catch(() => {});
+        await sendMessage(chatId, response);
+      }
+    } else {
+      await sendMessage(chatId, response);
+    }
   } catch (e) {
-    await sendMessage(chatId, `❌ Error: ${e.message}`);
+    clearInterval(typingInterval);
+    const errText = `❌ Error: ${e.message}`;
+    if (workingMsgId) await editMessage(chatId, workingMsgId, errText).catch(() => sendMessage(chatId, errText));
+    else await sendMessage(chatId, errText);
   }
 }
 
