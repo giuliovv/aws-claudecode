@@ -167,7 +167,7 @@ function bridgePost(ip, path, body) {
       path,
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
-      timeout: 130000,
+      timeout: 620000,
     };
     const req = http.request(options, (res) => {
       let data = '';
@@ -385,8 +385,15 @@ async function handleMessage(msg) {
   // Show working indicator while Claude processes
   tgRequest('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => {});
   const workingMsgId = await sendMessageWithId(chatId, '⏳ Working...').catch(() => null);
+  const startedAt = Date.now();
+  let tickCount = 0;
   const typingInterval = setInterval(() => {
     tgRequest('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => {});
+    tickCount++;
+    if (workingMsgId && tickCount % 5 === 0) {
+      const elapsed = Math.round((Date.now() - startedAt) / 1000);
+      editMessage(chatId, workingMsgId, `⏳ Working... (${elapsed}s)`).catch(() => {});
+    }
   }, 4000);
 
   try {

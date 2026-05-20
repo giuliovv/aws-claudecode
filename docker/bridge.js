@@ -229,7 +229,7 @@ function runClaude(message) {
       env: SPAWN_ENV(),
       cwd: WORKSPACE,
       stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 120000,
+      timeout: 600000,
     });
 
     proc.stdout.on('data', (d) => { stdout += d.toString(); });
@@ -239,7 +239,11 @@ function runClaude(message) {
       if (code !== 0) {
         sessionId = null;
         try { fs.unlinkSync(SESSION_FILE); } catch {}
-        return reject(new Error(stderr.trim() || `claude exited ${code}`));
+        const isTimeout = code === 143 || code === 124;
+        const msg = isTimeout
+          ? 'Claude timed out on a long task. Try breaking it into smaller steps.'
+          : (stderr.trim() || `claude exited ${code}`);
+        return reject(new Error(msg));
       }
       try {
         const parsed = JSON.parse(stdout);
