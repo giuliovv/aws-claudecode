@@ -330,14 +330,24 @@ async function handleMessage(msg) {
     }
   }
 
-  // Check auth status first time
+  // Check auth status — if unreachable, container may have gone idle; re-provision once
   let authStatus;
   try {
     authStatus = await bridgeGet(user.privateIp, '/auth-status');
   } catch (e) {
-    await sendMessage(chatId, '❌ Could not reach your container. Try /start to restart.');
-    await putUser(chatId, { status: 'error' });
-    return;
+    await sendMessage(chatId, '♻️ Container went idle — restarting, this takes ~60s...');
+    await putUser(chatId, { status: 'stopped', privateIp: '', taskArn: '' });
+    try {
+      const { taskArn } = await provisionUser(chatId);
+      await putUser(chatId, { status: 'provisioning', taskArn });
+      const ip = await waitForContainer(chatId);
+      user = { ...user, privateIp: ip, status: 'running' };
+      authStatus = await bridgeGet(user.privateIp, '/auth-status');
+    } catch (e2) {
+      await sendMessage(chatId, `❌ Failed to restart: ${e2.message}\nTry /start to retry.`);
+      await putUser(chatId, { status: 'error' });
+      return;
+    }
   }
 
   if (authStatus.error) {

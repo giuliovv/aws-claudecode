@@ -12,6 +12,7 @@ const { DynamoDBClient, UpdateItemCommand } = require('@aws-sdk/client-dynamodb'
 const { S3Client, GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
 
 const PORT = 3000;
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // shut down after 30 min idle
 const USER_CHAT_ID = process.env.USER_CHAT_ID || '';
 const DYNAMO_TABLE = process.env.DYNAMO_TABLE || 'claudecode-users';
 const S3_BUCKET = process.env.S3_BUCKET || 'claudecode-sessions-854656252703';
@@ -101,6 +102,27 @@ let authWaiters = [];
 let codeSubmitted = false;
 let isAuthedInMemory = false;
 let sessionId = null;
+let idleTimer = null;
+
+async function shutdownIdle() {
+  console.log('Idle timeout — saving and stopping');
+  await saveCredsToS3().catch((e) => console.error('S3 save on idle:', e.message));
+  try {
+    await dynamo.send(new UpdateItemCommand({
+      TableName: DYNAMO_TABLE,
+      Key: { chatId: { S: USER_CHAT_ID } },
+      UpdateExpression: 'SET #st = :st',
+      ExpressionAttributeNames: { '#st': 'status' },
+      ExpressionAttributeValues: { ':st': { S: 'stopped' } },
+    }));
+  } catch (e) { console.error('DynamoDB idle update failed:', e.message); }
+  process.exit(0);
+}
+
+function resetIdleTimer() {
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = setTimeout(shutdownIdle, IDLE_TIMEOUT_MS);
+}
 
 // ── S3 helpers — persist entire CLAUDE_HOME as tar.gz ────────────────────
 const s3HomeKey = `sessions/${USER_CHAT_ID}/home.tar.gz`;
@@ -288,6 +310,7 @@ app.post('/auth-code', (req, res) => {
 });
 
 app.post('/chat', async (req, res) => {
+  resetIdleTimer();
   const { message } = req.body || {};
   if (!message) return res.status(400).json({ error: 'message required' });
 
@@ -313,6 +336,7 @@ app.listen(PORT, '0.0.0.0', async () => {
   console.log(`Bridge on :${PORT} — chatId=${USER_CHAT_ID}`);
   await loadCredsFromS3();
   await registerSelf();
+  resetIdleTimer();
 });
 
 // Save creds on clean shutdown
