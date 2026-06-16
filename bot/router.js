@@ -7,7 +7,7 @@
 const https = require('https');
 const http = require('http');
 const { DynamoDBClient, GetItemCommand, UpdateItemCommand, ScanCommand } = require('@aws-sdk/client-dynamodb');
-const { ECSClient, StopTaskCommand, ListTasksCommand } = require('@aws-sdk/client-ecs');
+const { ECSClient, UpdateServiceCommand } = require('@aws-sdk/client-ecs');
 const { provisionUser, getContainerIp } = require('../infra/provision-user');
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -16,6 +16,8 @@ const DYNAMO_TABLE = process.env.DYNAMO_TABLE || 'claudecode-users';
 const OFFSET_FILE = `${process.env.HOME || '/home/ubuntu'}/.claudecode-router-offset`;
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || '';
 const DAILY_MSG_LIMIT = Number(process.env.DAILY_MSG_LIMIT || '50');
+const IDLE_TIMEOUT_MS = Number(process.env.IDLE_TIMEOUT_MIN || '30') * 60 * 1000;
+const IDLE_CHECK_MS = Number(process.env.IDLE_CHECK_MIN || '5') * 60 * 1000;
 
 if (!BOT_TOKEN) throw new Error('TELEGRAM_BOT_TOKEN is required');
 
@@ -113,13 +115,14 @@ async function putUser(chatId, attrs) {
 
 // ── Container restart ─────────────────────────────────────────────────────
 async function restartUser(targetId) {
-  const user = await getUser(targetId);
-  if (user?.taskArn) {
-    try {
-      await ecs.send(new StopTaskCommand({ cluster: ECS_CLUSTER, task: user.taskArn, reason: 'admin restart' }));
-    } catch (e) {
-      console.error(`StopTask failed for ${targetId}:`, e.message);
-    }
+  try {
+    await ecs.send(new UpdateServiceCommand({
+      cluster: ECS_CLUSTER,
+      service: `user-${targetId}`,
+      desiredCount: 0,
+    }));
+  } catch (e) {
+    console.error(`UpdateService desiredCount:0 failed for ${targetId}:`, e.message);
   }
   await putUser(targetId, { status: 'stopped', privateIp: '', taskArn: '' });
 }
@@ -303,7 +306,8 @@ async function handleMessage(msg) {
   // New user — provision a container
   if (!user || user.status === 'stopped' || user.status === 'error' || user.status === 'pending') {
     await sendMessage(chatId, '⚙️ Spinning up your container...');
-    await putUser(chatId, { status: 'provisioning', username, createdAt: new Date().toISOString() });
+    const now = new Date().toISOString();
+    await putUser(chatId, { status: 'provisioning', username, createdAt: now, lastActivity: now });
     try {
       const { taskArn, efsAccessPointId } = await provisionUser(chatId);
       await putUser(chatId, { status: 'provisioning', taskArn, efsAccessPointId });
@@ -406,6 +410,8 @@ async function handleMessage(msg) {
     }
   }, 4000);
 
+  await putUser(chatId, { lastActivity: new Date().toISOString() });
+
   try {
     const result = await bridgePost(user.privateIp, '/chat', { message: text });
     clearInterval(typingInterval);
@@ -441,6 +447,38 @@ async function handleMessage(msg) {
   }
 }
 
+// ── Idle container cleanup ────────────────────────────────────────────────
+async function stopIdleContainers() {
+  const cutoff = new Date(Date.now() - IDLE_TIMEOUT_MS).toISOString();
+  try {
+    const { Items } = await dynamo.send(new ScanCommand({
+      TableName: DYNAMO_TABLE,
+      FilterExpression: '#st = :r',
+      ExpressionAttributeNames: { '#st': 'status' },
+      ExpressionAttributeValues: { ':r': { S: 'running' } },
+      ProjectionExpression: 'chatId, taskArn, lastActivity, createdAt',
+    }));
+    for (const item of (Items || [])) {
+      const activity = item.lastActivity?.S || item.createdAt?.S;
+      if (!activity || activity >= cutoff) continue;
+      const chatId = item.chatId?.S;
+      console.log(`Stopping idle container for ${chatId} (last activity: ${activity})`);
+      try {
+        await ecs.send(new UpdateServiceCommand({
+          cluster: ECS_CLUSTER,
+          service: `user-${chatId}`,
+          desiredCount: 0,
+        }));
+      } catch (e) {
+        console.error(`UpdateService desiredCount:0 failed for ${chatId}:`, e.message);
+      }
+      await putUser(chatId, { status: 'stopped', privateIp: '', taskArn: '' });
+    }
+  } catch (e) {
+    console.error('stopIdleContainers error:', e.message);
+  }
+}
+
 // ── Long-poll loop ────────────────────────────────────────────────────────
 function loadOffset() {
   try { return Number(fs.readFileSync(OFFSET_FILE, 'utf8').trim()) || 0; } catch { return 0; }
@@ -471,3 +509,4 @@ async function poll() {
 }
 
 poll();
+setInterval(stopIdleContainers, IDLE_CHECK_MS);

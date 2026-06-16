@@ -13,7 +13,25 @@ const { S3Client, GetObjectCommand, PutObjectCommand } = require('@aws-sdk/clien
 
 const PORT = 3000;
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // shut down after 30 min idle
-const USER_CHAT_ID = process.env.USER_CHAT_ID || '';
+
+// ECS Services can't pass per-task env overrides, so discover chatId from
+// the service name (user-{chatId}) via the ECS task metadata endpoint.
+// Falls back to USER_CHAT_ID env var for RunTask / local dev compatibility.
+function discoverChatId() {
+  if (process.env.USER_CHAT_ID) return process.env.USER_CHAT_ID;
+  const metaUri = process.env.ECS_CONTAINER_METADATA_URI_V4;
+  if (!metaUri) return '';
+  try {
+    const meta = JSON.parse(execSync(`curl -sf ${metaUri}/task`, { timeout: 5000 }).toString());
+    const svcName = meta.ServiceName || '';
+    if (svcName.startsWith('user-')) return svcName.slice(5);
+  } catch (e) {
+    console.error('ECS metadata discovery failed:', e.message);
+  }
+  return '';
+}
+
+const USER_CHAT_ID = discoverChatId();
 const DYNAMO_TABLE = process.env.DYNAMO_TABLE || 'claudecode-users';
 const S3_BUCKET = process.env.S3_BUCKET || 'claudecode-sessions-854656252703';
 const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
