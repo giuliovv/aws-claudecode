@@ -1,0 +1,163 @@
+#!/bin/bash
+set -euo pipefail
+
+SESSION="${CLAUDE_TMUX_SESSION:-claude-channels}"
+SERVICE="${CLAUDE_SERVICE:-claude-channels.service}"
+CLAUDE_BIN="${CLAUDE_BIN:-/home/ubuntu/.local/bin/claude}"
+HOME_DIR="${HOME:-/home/ubuntu}"
+PATH="/home/ubuntu/.local/bin:/home/ubuntu/.bun/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+
+usage() {
+  cat <<USAGE
+Usage:
+  claude-login-repair status
+  claude-login-repair begin
+  claude-login-repair finish
+  claude-login-repair verify
+
+Flow:
+  1. claude-login-repair begin
+     Starts a clean Claude channel session and runs /login.
+     Complete the browser flow and copy the resulting code.
+
+  2. claude-login-repair finish
+     Reads the login code from stdin without echo, pastes it into tmux,
+     restarts the channel service so fresh credentials are loaded, then verifies auth.
+
+  3. claude-login-repair status
+     Shows service/tmux/plugin status.
+
+Notes:
+  - Do not pass OAuth codes as command-line args; they show up in shell history/process lists.
+  - This script clears tmux input/history after login to avoid leaving codes in scrollback.
+USAGE
+}
+
+need_tmux() {
+  command -v tmux >/dev/null || { echo "tmux not found" >&2; exit 1; }
+}
+
+status() {
+  if [[ -x /home/ubuntu/claude-status ]]; then
+    /home/ubuntu/claude-status || true
+  else
+    systemctl status "$SERVICE" --no-pager -l || true
+    tmux ls 2>/dev/null || true
+  fi
+}
+
+clear_tmux_input() {
+  tmux send-keys -t "$SESSION" C-c C-u 2>/dev/null || true
+}
+
+begin_login() {
+  need_tmux
+  echo "Restarting $SERVICE for a clean login session..."
+  sudo systemctl restart "$SERVICE"
+  sleep 5
+
+  if ! tmux has-session -t "$SESSION" 2>/dev/null; then
+    echo "tmux session $SESSION did not start" >&2
+    status
+    exit 1
+  fi
+
+  clear_tmux_input
+  tmux send-keys -t "$SESSION" '/login' C-m
+  sleep 3
+  echo "Login started. Use the browser flow shown in tmux, then run: claude-login-repair finish"
+  echo "Recent Claude pane:"
+  tmux capture-pane -pt "$SESSION" -S -80 | tail -60
+}
+
+finish_login() {
+  need_tmux
+  if ! tmux has-session -t "$SESSION" 2>/dev/null; then
+    echo "tmux session $SESSION is missing; run claude-login-repair begin first" >&2
+    exit 1
+  fi
+
+  printf 'Paste Claude login code, then press Enter: ' >&2
+  IFS= read -r -s code
+  printf '\n' >&2
+  if [[ -z "$code" ]]; then
+    echo "empty code" >&2
+    exit 1
+  fi
+
+  clear_tmux_input
+  tmux set-buffer -b claude_login_code -- "$code"
+  tmux paste-buffer -b claude_login_code -t "$SESSION"
+  tmux delete-buffer -b claude_login_code || true
+  tmux send-keys -t "$SESSION" C-m
+  unset code
+
+  echo "Submitted code; waiting for login result..."
+  for _ in $(seq 1 30); do
+    pane="$(tmux capture-pane -pt "$SESSION" -S -120 || true)"
+    if grep -q 'Login successful' <<<"$pane"; then
+      echo "Login successful in tmux. Restarting service to reload credentials..."
+      break
+    fi
+    if grep -Eqi 'invalid|expired|failed|error' <<<"$pane"; then
+      echo "Login appears to have failed. Recent pane:" >&2
+      echo "$pane" | tail -80 >&2
+      exit 1
+    fi
+    sleep 2
+  done
+
+  sudo systemctl restart "$SERVICE"
+  sleep 5
+  clear_tmux_input
+  tmux clear-history -t "$SESSION" 2>/dev/null || true
+  verify
+}
+
+verify() {
+  export HOME="$HOME_DIR"
+  export PATH
+
+  echo "Checking standalone Claude auth..."
+  out="$($CLAUDE_BIN --print 'Reply exactly AUTH_OK' --dangerously-skip-permissions 2>&1 || true)"
+  if [[ "$out" != *AUTH_OK* ]]; then
+    echo "Standalone auth failed:" >&2
+    echo "$out" >&2
+    exit 1
+  fi
+  echo "standalone: AUTH_OK"
+
+  if tmux has-session -t "$SESSION" 2>/dev/null; then
+    clear_tmux_input
+    tmux send-keys -t "$SESSION" 'Reply exactly LIVE_AUTH_OK' C-m
+    for _ in $(seq 1 30); do
+      pane="$(tmux capture-pane -pt "$SESSION" -S -80 || true)"
+      if grep -q 'LIVE_AUTH_OK' <<<"$pane"; then
+        echo "live tmux: LIVE_AUTH_OK"
+        tmux clear-history -t "$SESSION" 2>/dev/null || true
+        status
+        return 0
+      fi
+      if grep -q 'Please run /login' <<<"$pane"; then
+        echo "Live tmux auth failed: Please run /login" >&2
+        echo "$pane" | tail -80 >&2
+        exit 1
+      fi
+      sleep 2
+    done
+    echo "Live tmux auth test timed out" >&2
+    status
+    exit 1
+  fi
+
+  status
+}
+
+case "${1:-}" in
+  status) status ;;
+  begin) begin_login ;;
+  finish) finish_login ;;
+  verify) verify ;;
+  -h|--help|help|'') usage ;;
+  *) echo "unknown command: $1" >&2; usage >&2; exit 2 ;;
+esac
