@@ -5,7 +5,15 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 
 const TELEGRAM_TOKEN = process.env.CLAUDE_TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || '';
-const MODEL = process.env.CLAUDE_MODEL || 'fable';
+const DEFAULT_MODEL = process.env.CLAUDE_MODEL || 'fable';
+const MODEL_ALIASES = {
+  fable: 'fable',
+  'claude-fable-5': 'claude-fable-5',
+  sonnet: 'sonnet',
+  'claude-sonnet-5': 'claude-sonnet-5',
+  opus: 'opus',
+  'claude-opus-5': 'claude-opus-5',
+};
 const WORKDIR = process.env.CLAUDE_WORKDIR || '/home/ubuntu/giuliowd';
 const ALLOWED_CHAT_ID = process.env.CLAUDE_ALLOWED_CHAT_ID || process.env.ADMIN_CHAT_ID || '';
 const CLAUDE_BIN = process.env.CLAUDE_BIN || '/home/ubuntu/.local/bin/claude';
@@ -70,20 +78,45 @@ function saveOffset(offset) {
   fs.writeFileSync(OFFSET_FILE, String(offset));
 }
 
-function getChatSession(chatId) {
+function getChatState(chatId) {
   const state = loadJson(STATE_FILE, { chats: {} });
   return state.chats[String(chatId)] || null;
 }
 
+function getChatModel(chatId) {
+  return getChatState(chatId)?.model || DEFAULT_MODEL;
+}
+
 function setChatSession(chatId, sessionId) {
   const state = loadJson(STATE_FILE, { chats: {} });
-  state.chats[String(chatId)] = { sessionId, updatedAt: new Date().toISOString() };
+  const current = state.chats[String(chatId)] || {};
+  state.chats[String(chatId)] = {
+    ...current,
+    sessionId,
+    model: current.model || DEFAULT_MODEL,
+    updatedAt: new Date().toISOString(),
+  };
+  saveJson(STATE_FILE, state);
+}
+
+function setChatModel(chatId, model) {
+  const state = loadJson(STATE_FILE, { chats: {} });
+  const current = state.chats[String(chatId)] || {};
+  state.chats[String(chatId)] = {
+    ...current,
+    model,
+    updatedAt: new Date().toISOString(),
+  };
   saveJson(STATE_FILE, state);
 }
 
 function clearChatSession(chatId) {
   const state = loadJson(STATE_FILE, { chats: {} });
-  delete state.chats[String(chatId)];
+  const current = state.chats[String(chatId)] || {};
+  state.chats[String(chatId)] = {
+    ...(current.model ? { model: current.model } : {}),
+    updatedAt: new Date().toISOString(),
+  };
   saveJson(STATE_FILE, state);
 }
 
@@ -149,11 +182,12 @@ function extractResult(stdout) {
 
 function runClaude(chatId, prompt) {
   return new Promise((resolve) => {
-    const session = getChatSession(chatId);
+    const session = getChatState(chatId);
+    const model = getChatModel(chatId);
     const args = [
       '-p',
       '--output-format', 'json',
-      '--model', MODEL,
+      '--model', model,
       '--dangerously-skip-permissions',
       '--append-system-prompt', APPEND_SYSTEM_PROMPT,
     ];
@@ -226,19 +260,49 @@ async function handleMessage(message) {
   if (text === '/start' || text === '/help') {
     await sendMessage(
       chatId,
-      `Send any prompt and I will keep a Claude session per chat in ${WORKDIR} using model ${MODEL}. Use /reset to clear context.`,
+      [
+        `Send any prompt and I will keep a Claude session per chat in ${WORKDIR}.`,
+        `Current model: ${getChatModel(chatId)}`,
+        'Commands: /status, /reset, /model, /model fable, /model sonnet, /model opus',
+      ].join('\n'),
       message.message_id,
     );
     return;
   }
 
   if (text === '/status') {
-    const session = getChatSession(chatId);
+    const session = getChatState(chatId);
     await sendMessage(
       chatId,
-      `Claude bridge is ${busy ? `busy: ${currentTask}` : 'idle'}.\nworkdir: ${WORKDIR}\nmodel: ${MODEL}\nsession: ${session?.sessionId || 'none'}`,
+      `Claude bridge is ${busy ? `busy: ${currentTask}` : 'idle'}.\nworkdir: ${WORKDIR}\nmodel: ${getChatModel(chatId)}\nsession: ${session?.sessionId || 'none'}`,
       message.message_id,
     );
+    return;
+  }
+
+  if (text === '/model' || text.startsWith('/model ')) {
+    const requested = text.slice('/model'.length).trim().toLowerCase();
+    if (!requested) {
+      await sendMessage(
+        chatId,
+        `Current model: ${getChatModel(chatId)}\nAvailable: fable, sonnet, opus\nUse: /model sonnet`,
+        message.message_id,
+      );
+      return;
+    }
+
+    const model = MODEL_ALIASES[requested];
+    if (!model) {
+      await sendMessage(
+        chatId,
+        `Unknown model: ${requested}\nAvailable: fable, sonnet, opus`,
+        message.message_id,
+      );
+      return;
+    }
+
+    setChatModel(chatId, model);
+    await sendMessage(chatId, `Model set to ${model}. Context/session is unchanged.`, message.message_id);
     return;
   }
 
@@ -281,7 +345,7 @@ async function handleMessage(message) {
 
 async function poll() {
   let offset = loadOffset();
-  console.log(`Claude Telegram bridge started: model=${MODEL} workdir=${WORKDIR}`);
+  console.log(`Claude Telegram bridge started: default_model=${DEFAULT_MODEL} workdir=${WORKDIR}`);
 
   while (true) {
     try {
