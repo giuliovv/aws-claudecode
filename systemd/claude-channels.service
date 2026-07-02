@@ -1,0 +1,16 @@
+[Unit]
+Description=Claude Code Telegram Channels
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/giuliowd
+Environment=HOME=/home/ubuntu
+EnvironmentFile=/etc/ai-bots.env
+Restart=always
+RestartSec=30
+ExecStart=/home/ubuntu/start-claude-channels.sh
+
+[Install]
+WantedBy=multi-user.target
