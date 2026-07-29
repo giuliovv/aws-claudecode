@@ -330,10 +330,9 @@ async function finishLogin(chatId, code, replyToMessageId) {
 
   const status = await getAuthStatus();
   if (status.loggedIn) {
-    clearChatSession(chatId);
     await sendMessage(
       chatId,
-      `Claude login successful.\nauth: ${status.authMethod || 'unknown'}\nContext was reset so the next task starts with fresh auth.`,
+      `Claude login successful.\nauth: ${status.authMethod || 'unknown'}\nExisting Claude context/session was preserved.`,
       replyToMessageId,
     );
     return;

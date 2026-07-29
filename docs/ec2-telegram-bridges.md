@@ -47,7 +47,7 @@ Telegram commands:
 - `/status`: show bridge status, workdir, selected model, Claude session id, and auth state.
 - `/auth`: show Claude auth state.
 - `/login`: start Claude OAuth login from Telegram. The bridge replies with a browser URL.
-- `/login <code>`: submit the code returned by the browser flow. The bridge verifies auth and clears the saved Claude session so the next task starts with fresh credentials.
+- `/login <code>`: submit the code returned by the browser flow. The bridge verifies auth and preserves the saved Claude session/context.
 - `/reset`: clear Claude session context for that Telegram chat, preserving selected model.
 - `/model`: show current model and options.
 - `/model fable`, `/model sonnet`, `/model opus`, `/model claude-sonnet-5`, `/model claude-opus-5`: change model for future turns without resetting context.
