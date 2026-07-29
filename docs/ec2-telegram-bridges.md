@@ -44,10 +44,25 @@ Default runtime settings from `scripts/start-claude-channels.sh`:
 
 Telegram commands:
 
-- `/status`: show bridge status, workdir, selected model, and Claude session id.
+- `/status`: show bridge status, workdir, selected model, Claude session id, and auth state.
+- `/auth`: show Claude auth state.
+- `/login`: start Claude OAuth login from Telegram. The bridge replies with a browser URL.
+- `/login <code>`: submit the code returned by the browser flow. The bridge verifies auth and clears the saved Claude session so the next task starts with fresh credentials.
 - `/reset`: clear Claude session context for that Telegram chat, preserving selected model.
 - `/model`: show current model and options.
-- `/model fable`, `/model sonnet`, `/model opus`: change model for future turns without resetting context.
+- `/model fable`, `/model sonnet`, `/model opus`, `/model claude-sonnet-5`, `/model claude-opus-5`: change model for future turns without resetting context.
+
+Remote Claude login flow when terminal access is unavailable:
+
+```text
+/auth
+/login
+# open the URL returned by Telegram
+/login CODE_FROM_BROWSER
+/auth
+```
+
+Do not send OAuth codes as normal prompts. Only send them as `/login <code>`. The bridge writes the code to the pending `claude auth login` process over stdin and does not store it in state.
 
 The bridge stores one Claude session id per Telegram chat in `/home/ubuntu/.claude-telegram-state.json`. To seed a known Claude session after recovery:
 
@@ -137,12 +152,14 @@ Expected watchdog state for the local bridge:
 ok-local-bridge
 ```
 
-7. Test in Telegram:
+7. Test auth and model selection in Telegram:
 
 ```text
 /status
+/auth
+/login
 /model
-/model sonnet
+/model claude-sonnet-5
 ```
 
 ## Operational Notes

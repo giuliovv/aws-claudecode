@@ -35,6 +35,7 @@ if (!TELEGRAM_TOKEN) {
 const telegramApiBase = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
 let busy = false;
 let currentTask = 'idle';
+const pendingLogins = new Map();
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -180,6 +181,171 @@ function extractResult(stdout) {
   return null;
 }
 
+function extractLoginUrl(text) {
+  const match = text.match(/https:\/\/claude\.com\/cai\/oauth\/authorize\?[^\s]+/);
+  return match ? match[0] : null;
+}
+
+function runCommand(args, options = {}) {
+  return new Promise((resolve) => {
+    const child = spawn(args[0], args.slice(1), {
+      cwd: WORKDIR,
+      env: {
+        ...process.env,
+        HOME: '/home/ubuntu',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      ...options,
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (chunk) => {
+      stdout = truncate(stdout + chunk.toString(), MAX_PROCESS_OUTPUT);
+    });
+
+    child.stderr.on('data', (chunk) => {
+      stderr = truncate(stderr + chunk.toString(), MAX_PROCESS_OUTPUT);
+    });
+
+    child.on('close', (code, signal) => resolve({ code, signal, stdout, stderr }));
+    child.on('error', (error) => resolve({ code: null, signal: null, stdout, stderr: `${stderr}\n${error.message}` }));
+  });
+}
+
+async function getAuthStatus() {
+  const result = await runCommand([CLAUDE_BIN, 'auth', 'status']);
+  try {
+    return JSON.parse(result.stdout);
+  } catch {
+    return { loggedIn: false, authMethod: 'unknown', raw: truncate(`${result.stdout}\n${result.stderr}`.trim(), 1000) };
+  }
+}
+
+function clearPendingLogin(chatId) {
+  const pending = pendingLogins.get(String(chatId));
+  if (pending?.child && !pending.child.killed) {
+    pending.child.kill('SIGTERM');
+  }
+  if (pending?.timer) clearTimeout(pending.timer);
+  pendingLogins.delete(String(chatId));
+}
+
+async function beginLogin(chatId, replyToMessageId) {
+  clearPendingLogin(chatId);
+
+  const child = spawn(CLAUDE_BIN, ['auth', 'login'], {
+    cwd: WORKDIR,
+    env: {
+      ...process.env,
+      HOME: '/home/ubuntu',
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  const pending = {
+    child,
+    output: '',
+    sentUrl: false,
+    replyToMessageId,
+    timer: null,
+  };
+  pendingLogins.set(String(chatId), pending);
+
+  const onData = async (chunk) => {
+    pending.output = truncate(pending.output + chunk.toString(), MAX_PROCESS_OUTPUT);
+    const url = extractLoginUrl(pending.output);
+    if (url && !pending.sentUrl) {
+      pending.sentUrl = true;
+      await sendMessage(
+        chatId,
+        [
+          'Claude login started.',
+          '',
+          'Open this URL, complete auth, then send:',
+          '/login <code>',
+          '',
+          url,
+        ].join('\n'),
+        replyToMessageId,
+      );
+    }
+  };
+
+  child.stdout.on('data', (chunk) => { onData(chunk).catch((error) => console.error(new Date().toISOString(), error)); });
+  child.stderr.on('data', (chunk) => { onData(chunk).catch((error) => console.error(new Date().toISOString(), error)); });
+
+  child.on('close', async (code, signal) => {
+    if (pendingLogins.get(String(chatId)) !== pending) return;
+    if (pending.timer) clearTimeout(pending.timer);
+    pendingLogins.delete(String(chatId));
+    if (code === 0) return;
+
+    await sendMessage(
+      chatId,
+      `Claude login process exited before completion (${code ?? signal ?? 'unknown'}).\n${truncate(pending.output, 2000)}`,
+      replyToMessageId,
+    );
+  });
+
+  child.on('error', async (error) => {
+    if (pendingLogins.get(String(chatId)) !== pending) return;
+    if (pending.timer) clearTimeout(pending.timer);
+    pendingLogins.delete(String(chatId));
+    await sendMessage(chatId, `Failed to start Claude login: ${error.message}`, replyToMessageId);
+  });
+
+  pending.timer = setTimeout(async () => {
+    if (pendingLogins.get(String(chatId)) !== pending) return;
+    clearPendingLogin(chatId);
+    await sendMessage(chatId, 'Claude login expired. Send /login to generate a fresh link.', replyToMessageId);
+  }, 10 * 60 * 1000);
+
+  setTimeout(async () => {
+    if (pendingLogins.get(String(chatId)) !== pending || pending.sentUrl) return;
+    await sendMessage(
+      chatId,
+      `Claude login did not produce a URL yet.\n${truncate(pending.output || 'No output.', 2000)}`,
+      replyToMessageId,
+    );
+  }, 15000);
+}
+
+async function finishLogin(chatId, code, replyToMessageId) {
+  const pending = pendingLogins.get(String(chatId));
+  if (!pending?.child || pending.child.killed) {
+    await sendMessage(chatId, 'No pending Claude login. Send /login first.', replyToMessageId);
+    return;
+  }
+
+  pending.child.stdin.write(`${code}\n`);
+  pending.child.stdin.end();
+  await sendMessage(chatId, 'Submitted Claude login code. Verifying auth...', replyToMessageId);
+
+  const start = Date.now();
+  while (pendingLogins.get(String(chatId)) === pending && Date.now() - start < 60000) {
+    await delay(1000);
+  }
+
+  const status = await getAuthStatus();
+  if (status.loggedIn) {
+    clearChatSession(chatId);
+    await sendMessage(
+      chatId,
+      `Claude login successful.\nauth: ${status.authMethod || 'unknown'}\nContext was reset so the next task starts with fresh auth.`,
+      replyToMessageId,
+    );
+    return;
+  }
+
+  await sendMessage(
+    chatId,
+    `Claude auth still not valid.\n${status.raw || JSON.stringify(status)}`,
+    replyToMessageId,
+  );
+}
+
 function runClaude(chatId, prompt) {
   return new Promise((resolve) => {
     const session = getChatState(chatId);
@@ -263,7 +429,7 @@ async function handleMessage(message) {
       [
         `Send any prompt and I will keep a Claude session per chat in ${WORKDIR}.`,
         `Current model: ${getChatModel(chatId)}`,
-        'Commands: /status, /reset, /model, /model fable, /model sonnet, /model opus',
+        'Commands: /status, /auth, /login, /login <code>, /reset, /model, /model fable, /model claude-sonnet-5, /model claude-opus-5',
       ].join('\n'),
       message.message_id,
     );
@@ -272,11 +438,34 @@ async function handleMessage(message) {
 
   if (text === '/status') {
     const session = getChatState(chatId);
+    const auth = await getAuthStatus();
     await sendMessage(
       chatId,
-      `Claude bridge is ${busy ? `busy: ${currentTask}` : 'idle'}.\nworkdir: ${WORKDIR}\nmodel: ${getChatModel(chatId)}\nsession: ${session?.sessionId || 'none'}`,
+      `Claude bridge is ${busy ? `busy: ${currentTask}` : 'idle'}.\nworkdir: ${WORKDIR}\nmodel: ${getChatModel(chatId)}\nsession: ${session?.sessionId || 'none'}\nauth: ${auth.loggedIn ? `logged in (${auth.authMethod || 'unknown'})` : 'not logged in'}`,
       message.message_id,
     );
+    return;
+  }
+
+  if (text === '/auth') {
+    const auth = await getAuthStatus();
+    await sendMessage(
+      chatId,
+      auth.loggedIn
+        ? `Claude auth is valid.\nauth: ${auth.authMethod || 'unknown'}`
+        : `Claude auth is not valid.\nSend /login to get an auth link.`,
+      message.message_id,
+    );
+    return;
+  }
+
+  if (text === '/login' || text.startsWith('/login ')) {
+    const code = text.slice('/login'.length).trim();
+    if (!code) {
+      await beginLogin(chatId, message.message_id);
+    } else {
+      await finishLogin(chatId, code, message.message_id);
+    }
     return;
   }
 
@@ -285,7 +474,7 @@ async function handleMessage(message) {
     if (!requested) {
       await sendMessage(
         chatId,
-        `Current model: ${getChatModel(chatId)}\nAvailable: fable, sonnet, opus\nUse: /model sonnet`,
+        `Current model: ${getChatModel(chatId)}\nAvailable: fable, claude-fable-5, sonnet, claude-sonnet-5, opus, claude-opus-5\nUse: /model claude-sonnet-5`,
         message.message_id,
       );
       return;
@@ -295,7 +484,7 @@ async function handleMessage(message) {
     if (!model) {
       await sendMessage(
         chatId,
-        `Unknown model: ${requested}\nAvailable: fable, sonnet, opus`,
+        `Unknown model: ${requested}\nAvailable: fable, claude-fable-5, sonnet, claude-sonnet-5, opus, claude-opus-5`,
         message.message_id,
       );
       return;
