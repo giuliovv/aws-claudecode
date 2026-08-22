@@ -50,6 +50,7 @@ For CloudFront apps, pass:
 ```bash
 -c domainName=<app>.aws.giuliovaccari.it \
 -c hostedZoneName=aws.giuliovaccari.it \
+-c hostedZoneId=Z08788173CZC2PM1CQDUQ \
 -c certificateArn=arn:aws:acm:us-east-1:854656252703:certificate/d8ee417b-e7e9-45f6-a008-07a3cf631483
 ```
 
@@ -58,5 +59,6 @@ Polyautomate uses equivalent prefixed context names:
 ```bash
 -c portfolioDomainName=polybot.aws.giuliovaccari.it \
 -c portfolioHostedZoneName=aws.giuliovaccari.it \
+-c portfolioHostedZoneId=Z08788173CZC2PM1CQDUQ \
 -c portfolioCertificateArn=arn:aws:acm:us-east-1:854656252703:certificate/d8ee417b-e7e9-45f6-a008-07a3cf631483
 ```
