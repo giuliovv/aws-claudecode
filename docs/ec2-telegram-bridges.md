@@ -36,7 +36,7 @@ Script: `bot/local-claude-telegram.js`.
 
 Default runtime settings from `scripts/start-claude-channels.sh`:
 
-- model: `fable`
+- model: `sonnet`
 - workdir: `/home/ubuntu/giuliowd`
 - allowed chat: `377533459`
 - timeout: 30 minutes
