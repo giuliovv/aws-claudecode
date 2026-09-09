@@ -73,7 +73,7 @@ path = pathlib.Path('/home/ubuntu/.claude-telegram-state.json')
 state = json.loads(path.read_text()) if path.exists() else {'chats': {}}
 state.setdefault('chats', {})['377533459'] = {
     'sessionId': 'OLD_SESSION_ID_HERE',
-    'model': 'fable',
+    'model': 'sonnet',
     'updatedAt': datetime.datetime.utcnow().replace(microsecond=0).isoformat() + 'Z',
 }
 path.write_text(json.dumps(state, indent=2))

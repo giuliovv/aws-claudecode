@@ -5,7 +5,7 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 
 const TELEGRAM_TOKEN = process.env.CLAUDE_TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || '';
-const DEFAULT_MODEL = process.env.CLAUDE_MODEL || 'fable';
+const DEFAULT_MODEL = process.env.CLAUDE_MODEL || 'sonnet';
 const MODEL_ALIASES = {
   fable: 'fable',
   'claude-fable-5': 'claude-fable-5',
