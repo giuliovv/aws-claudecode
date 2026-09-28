@@ -16,7 +16,7 @@ Runtime files outside the repo:
 - `/etc/systemd/system/claude-channels.service`: Claude bridge unit. Template: `systemd/claude-channels.service`.
 - `/etc/ai-bots.env`: secrets and bot config. Do not commit this file.
 - `/home/ubuntu/.claude-telegram-offset`: Telegram update offset for the Claude bridge.
-- `/home/ubuntu/.claude-telegram-state.json`: per-chat Claude session/model state.
+- `/home/ubuntu/.claude-telegram-state.json`: per-chat Claude session/model state. The bridge writes this atomically so restarts or crashes do not leave a half-written state file.
 - `/home/ubuntu/.codex-telegram-offset`: Telegram update offset for the Codex bridge.
 - `/home/ubuntu/.codex-telegram-state.json`: per-chat Codex thread state.
 
@@ -62,7 +62,7 @@ Remote Claude login flow when terminal access is unavailable:
 /auth
 ```
 
-Do not send OAuth codes as normal prompts. Only send them as `/login <code>`. The bridge writes the code to the pending `claude auth login` process over stdin and does not store it in state.
+Do not send OAuth codes as normal prompts. Only send them as `/login <code>`. The bridge writes the code to the pending `claude auth login` process over stdin and does not store it in state. Login and model changes must not clear `/home/ubuntu/.claude-telegram-state.json`; `/reset` is the only Telegram command that intentionally clears the saved Claude session for a chat.
 
 The bridge stores one Claude session id per Telegram chat in `/home/ubuntu/.claude-telegram-state.json`. To seed a known Claude session after recovery:
 
@@ -101,6 +101,7 @@ git clone git@github.com:giuliovv/aws-claudecode.git
 # Node is required for the bridge. Claude Code must be installed/login-ready.
 node --version
 /home/ubuntu/.local/bin/claude --version
+/home/ubuntu/.local/bin/claude update
 ```
 
 3. Create `/etc/ai-bots.env` with bot tokens and allowed chat ids.

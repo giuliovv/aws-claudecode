@@ -64,7 +64,9 @@ function loadJson(path, fallback) {
 }
 
 function saveJson(path, value) {
-  fs.writeFileSync(path, JSON.stringify(value, null, 2));
+  const tmpPath = `${path}.${process.pid}.tmp`;
+  fs.writeFileSync(tmpPath, JSON.stringify(value, null, 2));
+  fs.renameSync(tmpPath, path);
 }
 
 function loadOffset() {
