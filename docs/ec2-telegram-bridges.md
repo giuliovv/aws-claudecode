@@ -36,7 +36,7 @@ Script: `bot/local-claude-telegram.js`.
 
 Default runtime settings from `scripts/start-claude-channels.sh`:
 
-- model: `sonnet`
+- model: `claude-sonnet-5-5`
 - workdir: `/home/ubuntu/giuliowd`
 - allowed chat: `377533459`
 - timeout: 30 minutes
@@ -50,7 +50,7 @@ Telegram commands:
 - `/login <code>`: submit the code returned by the browser flow. The bridge verifies auth and preserves the saved Claude session/context.
 - `/reset`: clear Claude session context for that Telegram chat, preserving selected model.
 - `/model`: show current model and options.
-- `/model fable`, `/model sonnet`, `/model opus`, `/model claude-sonnet-5`, `/model claude-opus-5`: change model for future turns without resetting context.
+- `/model fable`, `/model sonnet`, `/model sonnet-5`, `/model sonnet-5.5`, `/model opus`, `/model claude-sonnet-5`, `/model claude-sonnet-5-5`, `/model claude-opus-5`: change model for future turns without resetting context.
 
 Remote Claude login flow when terminal access is unavailable:
 
@@ -160,7 +160,7 @@ ok-local-bridge
 /auth
 /login
 /model
-/model claude-sonnet-5
+/model claude-sonnet-5-5
 ```
 
 ## Operational Notes

@@ -4,7 +4,7 @@ set -euo pipefail
 : "${CLAUDE_TELEGRAM_BOT_TOKEN:?missing CLAUDE_TELEGRAM_BOT_TOKEN}"
 
 export HOME=/home/ubuntu
-export CLAUDE_MODEL="${CLAUDE_MODEL:-sonnet}"
+export CLAUDE_MODEL="${CLAUDE_MODEL:-claude-sonnet-5-5}"
 export CLAUDE_WORKDIR="${CLAUDE_WORKDIR:-/home/ubuntu/giuliowd}"
 export CLAUDE_ALLOWED_CHAT_ID="${CLAUDE_ALLOWED_CHAT_ID:-377533459}"
 export CLAUDE_TASK_TIMEOUT_MS="${CLAUDE_TASK_TIMEOUT_MS:-1800000}"

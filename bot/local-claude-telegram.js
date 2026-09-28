@@ -5,11 +5,14 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 
 const TELEGRAM_TOKEN = process.env.CLAUDE_TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || '';
-const DEFAULT_MODEL = process.env.CLAUDE_MODEL || 'sonnet';
+const DEFAULT_MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-5-5';
 const MODEL_ALIASES = {
   fable: 'fable',
   'claude-fable-5': 'claude-fable-5',
-  sonnet: 'sonnet',
+  sonnet: 'claude-sonnet-5-5',
+  'sonnet-5.5': 'claude-sonnet-5-5',
+  'claude-sonnet-5-5': 'claude-sonnet-5-5',
+  'sonnet-5': 'claude-sonnet-5',
   'claude-sonnet-5': 'claude-sonnet-5',
   opus: 'opus',
   'claude-opus-5': 'claude-opus-5',
@@ -430,7 +433,7 @@ async function handleMessage(message) {
       [
         `Send any prompt and I will keep a Claude session per chat in ${WORKDIR}.`,
         `Current model: ${getChatModel(chatId)}`,
-        'Commands: /status, /auth, /login, /login <code>, /reset, /model, /model fable, /model claude-sonnet-5, /model claude-opus-5',
+        'Commands: /status, /auth, /login, /login <code>, /reset, /model, /model fable, /model sonnet-5.5, /model claude-opus-5',
       ].join('\n'),
       message.message_id,
     );
@@ -475,7 +478,7 @@ async function handleMessage(message) {
     if (!requested) {
       await sendMessage(
         chatId,
-        `Current model: ${getChatModel(chatId)}\nAvailable: fable, claude-fable-5, sonnet, claude-sonnet-5, opus, claude-opus-5\nUse: /model claude-sonnet-5`,
+        `Current model: ${getChatModel(chatId)}\nAvailable: fable, claude-fable-5, sonnet, sonnet-5.5, claude-sonnet-5-5, sonnet-5, claude-sonnet-5, opus, claude-opus-5\nUse: /model sonnet-5.5`,
         message.message_id,
       );
       return;
@@ -485,7 +488,7 @@ async function handleMessage(message) {
     if (!model) {
       await sendMessage(
         chatId,
-        `Unknown model: ${requested}\nAvailable: fable, claude-fable-5, sonnet, claude-sonnet-5, opus, claude-opus-5`,
+        `Unknown model: ${requested}\nAvailable: fable, claude-fable-5, sonnet, sonnet-5.5, claude-sonnet-5-5, sonnet-5, claude-sonnet-5, opus, claude-opus-5`,
         message.message_id,
       );
       return;
