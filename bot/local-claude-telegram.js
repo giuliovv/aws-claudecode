@@ -24,7 +24,7 @@ const OFFSET_FILE = process.env.CLAUDE_TELEGRAM_OFFSET_FILE || '/home/ubuntu/.cl
 const STATE_FILE = process.env.CLAUDE_TELEGRAM_STATE_FILE || '/home/ubuntu/.claude-telegram-state.json';
 const MAX_REPLY_CHARS = Number(process.env.CLAUDE_TELEGRAM_MAX_REPLY_CHARS || '3500');
 const MAX_PROCESS_OUTPUT = Number(process.env.CLAUDE_TELEGRAM_MAX_PROCESS_OUTPUT || '12000');
-const TASK_TIMEOUT_MS = Number(process.env.CLAUDE_TASK_TIMEOUT_MS || String(30 * 60 * 1000));
+const TASK_TIMEOUT_MS = Number(process.env.CLAUDE_TASK_TIMEOUT_MS || String(60 * 60 * 1000));
 const APPEND_SYSTEM_PROMPT = process.env.CLAUDE_APPEND_SYSTEM_PROMPT || [
   'You are running unattended behind a Telegram bridge.',
   'Return concise final answers suitable for Telegram.',
@@ -354,6 +354,8 @@ function runClaude(chatId, prompt) {
   return new Promise((resolve) => {
     const session = getChatState(chatId);
     const model = getChatModel(chatId);
+    const startedAt = Date.now();
+    console.log(`${new Date().toISOString()} claude_task_started chat=${chatId} model=${model} has_session=${Boolean(session?.sessionId)} timeout_ms=${TASK_TIMEOUT_MS}`);
     const args = [
       '-p',
       '--output-format', 'json',
@@ -396,7 +398,9 @@ function runClaude(chatId, prompt) {
 
     child.on('close', (code, signal) => {
       clearTimeout(timer);
+      const durationMs = Date.now() - startedAt;
       const parsed = extractResult(stdout);
+      console.log(`${new Date().toISOString()} claude_task_finished chat=${chatId} model=${model} code=${code ?? 'null'} signal=${signal ?? 'null'} timed_out=${timedOut} duration_ms=${durationMs} has_result=${Boolean(parsed)} is_error=${Boolean(parsed?.is_error)}`);
       if (code === 0 && parsed?.session_id) {
         setChatSession(chatId, parsed.session_id);
       }
@@ -405,6 +409,8 @@ function runClaude(chatId, prompt) {
 
     child.on('error', (error) => {
       clearTimeout(timer);
+      const durationMs = Date.now() - startedAt;
+      console.error(`${new Date().toISOString()} claude_task_error chat=${chatId} model=${model} duration_ms=${durationMs} error=${error.message}`);
       resolve({
         code: null,
         signal: null,

@@ -39,7 +39,7 @@ Default runtime settings from `scripts/start-claude-channels.sh`:
 - model: `claude-sonnet-5-5`
 - workdir: `/home/ubuntu/giuliowd`
 - allowed chat: `377533459`
-- timeout: 30 minutes
+- timeout: 60 minutes
 - command mode: `claude -p --output-format json --resume <sessionId>`
 
 Telegram commands:
