@@ -2,7 +2,7 @@
 
 This EC2 runs two local Telegram bridges:
 
-- `codex-telegram.service`: local Codex bridge using `/home/ubuntu/codex-telegram-bot.js`.
+- `codex-telegram.service`: local Codex bridge using `/home/ubuntu/codex-telegram-bot.js`. Template: `bot/local-codex-telegram.js`.
 - `claude-channels.service`: local Claude bridge using this repo's `bot/local-claude-telegram.js`.
 
 The Claude bridge intentionally does **not** use the Claude Code Telegram MCP plugin. The MCP channel plugin was unreliable after restarts (`MCP error -32000: Connection closed`, missing `bun server.ts`, messages consumed without delivery). The local bridge uses the same operational pattern as the Codex bridge: Telegram long polling -> spawn/resume CLI -> parse JSON result -> reply to Telegram.
@@ -11,6 +11,8 @@ The Claude bridge intentionally does **not** use the Claude Code Telegram MCP pl
 
 Runtime files outside the repo:
 
+- `/home/ubuntu/codex-telegram-bot.js`: Codex Telegram bridge. Template: `bot/local-codex-telegram.js`.
+- `/etc/systemd/system/codex-telegram.service`: Codex bridge unit. Template: `systemd/codex-telegram.service`.
 - `/home/ubuntu/start-claude-channels.sh`: launcher used by systemd. Template: `scripts/start-claude-channels.sh`.
 - `/home/ubuntu/watchdog-claude.sh`: health watchdog. Template: `scripts/watchdog-claude.sh`.
 - `/etc/systemd/system/claude-channels.service`: Claude bridge unit. Template: `systemd/claude-channels.service`.
@@ -28,6 +30,46 @@ CODEX_TELEGRAM_BOT_TOKEN=...
 # Optional but recommended; restricts bridges to Giulio's Telegram chat.
 CLAUDE_ALLOWED_CHAT_ID=377533459
 CODEX_ALLOWED_CHAT_ID=377533459
+```
+
+
+## Codex Bridge Behavior
+
+Script template: `bot/local-codex-telegram.js`.
+
+Current runtime settings from `/etc/ai-bots.env` and script defaults:
+
+- model: `gpt-5.3-codex` unless `CODEX_MODEL` overrides it
+- workdir: `/home/ubuntu/giuliowd` unless `CODEX_WORKDIR` overrides it
+- allowed chat: `377533459` via `CODEX_ALLOWED_CHAT_ID`
+- timeout: 20 minutes
+- command mode: `codex exec resume <threadId> ... --json` once a thread exists
+
+Telegram commands:
+
+- `/status`: show bridge status, workdir, selected model, and Codex thread id.
+- `/reset`: clear Codex thread context for that Telegram chat.
+- `/start` or `/help`: show usage.
+
+The bridge stores one Codex thread id per Telegram chat in `/home/ubuntu/.codex-telegram-state.json`. Current known thread for Giulio's chat:
+
+```text
+019ddfc7-82fe-7960-8843-09b764d2a5a3
+```
+
+To seed a known Codex thread after recovery:
+
+```bash
+python3 - <<'PY'
+import json, pathlib, datetime
+path = pathlib.Path('/home/ubuntu/.codex-telegram-state.json')
+state = json.loads(path.read_text()) if path.exists() else {'chats': {}}
+state.setdefault('chats', {})['377533459'] = {
+    'threadId': 'OLD_THREAD_ID_HERE',
+    'updatedAt': datetime.datetime.utcnow().replace(microsecond=0).isoformat() + 'Z',
+}
+path.write_text(json.dumps(state, indent=2))
+PY
 ```
 
 ## Claude Bridge Behavior
@@ -98,23 +140,30 @@ git clone git@github.com:giuliovv/aws-claudecode.git
 2. Install runtime prerequisites:
 
 ```bash
-# Node is required for the bridge. Claude Code must be installed/login-ready.
+# Node is required for both Telegram bridges.
 node --version
+
+# Codex CLI must be installed and login-ready for the Codex bridge.
+codex --version
+
+# Claude Code must be installed and login-ready for the Claude bridge.
 /home/ubuntu/.local/bin/claude --version
 /home/ubuntu/.local/bin/claude update
 ```
 
 3. Create `/etc/ai-bots.env` with bot tokens and allowed chat ids.
 
-4. Install launcher/watchdog/unit:
+4. Install bridge scripts, launcher, watchdog, and units:
 
 ```bash
+cp /home/ubuntu/aws-claudecode/bot/local-codex-telegram.js /home/ubuntu/codex-telegram-bot.js
 cp /home/ubuntu/aws-claudecode/scripts/start-claude-channels.sh /home/ubuntu/start-claude-channels.sh
 cp /home/ubuntu/aws-claudecode/scripts/watchdog-claude.sh /home/ubuntu/watchdog-claude.sh
-chmod +x /home/ubuntu/start-claude-channels.sh /home/ubuntu/watchdog-claude.sh
+chmod +x /home/ubuntu/codex-telegram-bot.js /home/ubuntu/start-claude-channels.sh /home/ubuntu/watchdog-claude.sh
+sudo cp /home/ubuntu/aws-claudecode/systemd/codex-telegram.service /etc/systemd/system/codex-telegram.service
 sudo cp /home/ubuntu/aws-claudecode/systemd/claude-channels.service /etc/systemd/system/claude-channels.service
 sudo systemctl daemon-reload
-sudo systemctl enable --now claude-channels.service
+sudo systemctl enable --now codex-telegram.service claude-channels.service
 ```
 
 5. Initialize Telegram offset to avoid replaying old updates:
@@ -123,8 +172,10 @@ sudo systemctl enable --now claude-channels.service
 python3 - <<'PY'
 import os, json, urllib.request, pathlib
 from pathlib import Path
-# Run with CLAUDE_TELEGRAM_BOT_TOKEN in the environment, or source it carefully.
-tok = os.environ['CLAUDE_TELEGRAM_BOT_TOKEN']
+# Run once per bot token with TOKEN_ENV set, for example:
+# TOKEN_ENV=CLAUDE_TELEGRAM_BOT_TOKEN python3 init-offset.py
+# TOKEN_ENV=CODEX_TELEGRAM_BOT_TOKEN python3 init-offset.py
+tok = os.environ[os.environ.get('TOKEN_ENV', 'CLAUDE_TELEGRAM_BOT_TOKEN')]
 req = urllib.request.Request(
     f'https://api.telegram.org/bot{tok}/getUpdates',
     data=json.dumps({'timeout': 0, 'allowed_updates': ['message']}).encode(),
@@ -133,7 +184,8 @@ req = urllib.request.Request(
 data = json.load(urllib.request.urlopen(req, timeout=15))
 updates = data.get('result', [])
 offset = (max([u['update_id'] for u in updates]) + 1) if updates else 0
-Path('/home/ubuntu/.claude-telegram-offset').write_text(str(offset))
+offset_path = '/home/ubuntu/.codex-telegram-offset' if os.environ.get('TOKEN_ENV') == 'CODEX_TELEGRAM_BOT_TOKEN' else '/home/ubuntu/.claude-telegram-offset'
+Path(offset_path).write_text(str(offset))
 print(offset)
 PY
 ```
@@ -141,7 +193,8 @@ PY
 6. Verify:
 
 ```bash
-systemctl status claude-channels.service --no-pager -l
+systemctl status codex-telegram.service claude-channels.service --no-pager -l
+journalctl -u codex-telegram.service -f
 journalctl -u claude-channels.service -f
 /home/ubuntu/watchdog-claude.sh
 cat /home/ubuntu/.claude-watchdog-state
@@ -153,9 +206,13 @@ Expected watchdog state for the local bridge:
 ok-local-bridge
 ```
 
-7. Test auth and model selection in Telegram:
+7. Test both bridges in Telegram:
 
 ```text
+# Codex bot
+/status
+
+# Claude bot
 /status
 /auth
 /login
@@ -168,5 +225,6 @@ ok-local-bridge
 - The Claude bridge uses the logged-in Claude Code account. It does not require `ANTHROPIC_API_KEY` and should consume normal Claude Code account usage, not separate API billing.
 - The bridge is single-flight: one Telegram request at a time. If Claude is busy, the bot asks the user to retry later.
 - If a running Claude task gets stuck, restart with `sudo systemctl restart claude-channels.service`.
-- If Telegram replies stop, check `journalctl -u claude-channels.service -f` and `/home/ubuntu/.claude-telegram-offset`.
+- If Codex Telegram replies stop, check `journalctl -u codex-telegram.service -f` and `/home/ubuntu/.codex-telegram-offset`.
+- If Claude Telegram replies stop, check `journalctl -u claude-channels.service -f` and `/home/ubuntu/.claude-telegram-offset`.
 - Do not run the old Claude Telegram MCP plugin with the same bot token at the same time; Telegram long polling permits only one consumer per bot token.

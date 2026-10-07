@@ -1,0 +1,16 @@
+[Unit]
+Description=Codex Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/giuliowd
+Environment=HOME=/home/ubuntu
+EnvironmentFile=/etc/ai-bots.env
+Restart=always
+RestartSec=15
+ExecStart=/usr/bin/node /home/ubuntu/codex-telegram-bot.js
+
+[Install]
+WantedBy=multi-user.target
